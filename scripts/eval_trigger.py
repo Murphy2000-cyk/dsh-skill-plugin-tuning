@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-skill-create-debug-dsh / scripts/eval_trigger.py
+dsh-skill-plugin-tuning / scripts/eval_trigger.py
 DSH skill 触发准确率评估 —— 用真实 session 日志判定 skill 是否被调用
 
 原理:

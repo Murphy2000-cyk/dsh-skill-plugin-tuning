@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-skill-create-debug-dsh / scripts/audit.py
+dsh-skill-plugin-tuning / scripts/audit.py
 DSH skill 体检器 —— 合规性 + 质量 + 成本 + 冲突
 
 用法:
@@ -19,7 +19,9 @@ if hasattr(sys.stdout, "reconfigure"):
 
 # ---------- DSH 规则常量 ----------
 NAME_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
-DESC_CATALOG_MAX = 500      # 目录中 description 的截断上限
+DESC_CATALOG_MAX = 400      # 我们自己的目录红线。DSH 运行时截断是 catalogDescriptionMaxLength
+                            # （默认 500，可配）；本机描述都是中文，中文 1 字约 1 token，
+                            # 所以自己收到 400，只为压目录的常驻成本
 BODY_SOFT_MAX = 360         # 强烈建议的正文行数上限（创建/调试 skill）；DSH 不强制
 BODY_SUGGEST_SPLIT = 250    # 超过此值且无 references/ 时建议拆分
 DESC_MIN_USEFUL = 40        # 低于此值几乎不可能可靠触发

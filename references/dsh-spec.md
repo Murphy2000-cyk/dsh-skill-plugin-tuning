@@ -92,7 +92,7 @@ If the user names a skill, or the task clearly matches a skill's description, ca
 关键事实：
 
 1. **目录只渲染 `name` + `description`**，不含 `whenToUse`、来源、提供方元数据 → **路由只基于名称和描述**
-2. **description 被截断到 `catalogDescriptionMaxLength`，默认 500 字符**，最小 3
+2. **description 被截断到 `catalogDescriptionMaxLength`，默认 500 字符**，最小 3；本机写作红线 **400 字符**
 3. 目录是一条**持久 user 角色消息**，在**首次请求之前**注入
 4. 成员、描述或可见性变化时，追加一份**完整的替换目录**（全量列表，不是增量）
 5. 删除全部 skill 时追加**空目录**，明确停用旧名称
@@ -146,12 +146,12 @@ DSH 的触发**不是字符串匹配**。有两条完全独立的路径，服务
 
 用户在输入框敲 `/` 会打开 skill 菜单。机制（来自 `dsh-client-ui-skill`）：
 
-- 候选来自宿主的 **`skills/list` Remote**
-- 宿主提供**每一个用户可调用**的 skill（即 `userInvocable`）
+- 候选来自 Agent 的 **`skills/list` Remote**
+- Agent 提供**每一个用户可调用**的 skill（即 `userInvocable`）
 - `disable-model-invocation: true` 的 skill **只在这条路径上可见**，菜单里会带上"仅限用户"标记
-- 匹配规则：**不区分大小写、有序子序列**匹配 skill 名，**前缀命中排最前**，同分保持宿主顺序
-- 发出的消息携带字面文本 `/name`，宿主加载 skill 并把指令注入该轮次
-- 若名字与宿主内置命令同名，**解析为命令**，不会成为提示词
+- 匹配规则：**不区分大小写、有序子序列**匹配 skill 名，**前缀命中排最前**，同分保持 Agent 顺序
+- 发出的消息携带字面文本 `/name`，Agent 加载 skill 并把指令注入该轮次
+- 若名字与 Agent 内置命令同名，**解析为命令**，不会成为提示词
 
 敲 `/name` 后，skill 正文以 `<skill_content>` 块注入该轮次，模型看到的形态与 `skill` 工具加载完全一致。
 
@@ -193,6 +193,6 @@ DSH 的触发**不是字符串匹配**。有两条完全独立的路径，服务
 | 发现深度 | **刻意只有一层** | 支持嵌套 |
 | 热重载 | **监听 + 免重启** | 需重新加载 |
 | 打包格式 | 无（就是目录） | `.skill` |
-| 描述上限 | **500 字符**（可配） | — |
+| 描述上限 | DSH 运行时 **500 字符**（`catalogDescriptionMaxLength`，可配）；本机写作红线 **400 字符** | — |
 
 **不要移植 Claude 生态里依赖 `.claude/commands/`、`claude -p`、`.skill` 打包的做法**——那些在 DSH 上不适用。

@@ -1,0 +1,9 @@
+{
+  "name": "dsh-broken-fixture",
+  "version": "0.0.1",
+  "type": "module",
+  "main": "index.js",
+  "files": ["index.js", "lib/*.js", "missing-dir/*.js"],
+  "dsh": { "bundle": { "patch": "./cordis.patch.yml" } },
+  "exports": { ".": "./index.js", "./icon": "./icon.svg" }
+}

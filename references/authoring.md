@@ -52,7 +52,9 @@ description: 帮助处理 Excel 数据——清洗、透视、公式生成、图
 
 ### 长度控制
 
-上限 500 字符（`catalogDescriptionMaxLength`）。超了尾部会被截断——**写在后面的触发词等于不存在**。
+上限 **400 字符**（本机红线）。DSH 运行时的截断值是 `catalogDescriptionMaxLength`，默认 500，可配；
+本机自己收到 400，因为描述都是中文，中文 1 字约 1 token，目录是持久消息、每次会话都在付这笔钱。
+超了尾部会被截断，**写在后面的触发词等于不存在**。
 
 所以：**把最重要的触发场景放前面**。
 
@@ -189,7 +191,7 @@ description: 帮助处理 Excel 数据——清洗、透视、公式生成、图
 |---|---|---|
 | **排斥性声明** | 正文若说"我是首选""不要用别的工具"，会和你的实际策略打架 | *"they are the preferred path. Do not reach for raw `curl`, `r.jina.ai`, or other tools…"*、*"use it before falling back to a built-in fetch"* |
 | **死字段** | 上游按别的 harness 的写法写 frontmatter，DSH 静默忽略 | `triggers:` 字段，11 行关键词表**一个字都不生效** |
-| **超长 description** | 上游不知道 DSH 有 500 字符截断 | 原 description 1775 字符，截断点正好切掉整段 `NOT for` 边界 |
+| **超长 description** | 上游不知道 DSH 会截断目录描述（默认 500 字符，本机红线 400） | 原 description 1775 字符，截断点正好切掉整段 `NOT for` 边界 |
 | **平台假设** | 路径、工具名、约定可能来自别的平台 | `Use /tmp/` 在 Windows 上不存在 |
 
 `audit.py` 的 **W7** 自动抓第一类。判据是：**同一处散文里既有"优先/禁止"措辞、
@@ -228,6 +230,6 @@ os.makedirs(target, exist_ok=True)
 
 ### 顺带：这类技能往往也需要本地修正
 
-因为它们不是为 DSH 写的，常见的还有：description 超 500、把关键信息写进死字段、
+因为它们不是为 DSH 写的，常见的还有：description 超长、把关键信息写进死字段、
 引用别的平台的路径与工具名。这些都要在装进来之后按本 skill 的模式 B 处理，
 并且同样记进补丁说明——否则下次更新全部重来。

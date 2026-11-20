@@ -1,0 +1,3 @@
+plugins:
+  insert:
+    - id: some-other-id

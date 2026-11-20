@@ -1,8 +1,10 @@
-# skill-create-debug-dsh
+# dsh-skill-plugin-tuning
 
-一个给 **DeepSeek Harness (DSH)** 用的 skill：面向写 skill 的人，负责创建、修改、体检，以及回答那个最难自测的问题：**这个 skill 到底会不会被触发。**
+一个给 **DeepSeek Harness (DSH)** 用的工作台，管两样东西：**skill**（一份 SKILL.md 文本）和**插件包**（npm 包 + 工具定义 + Agent 补丁）。
 
-`DSH skill` · `SKILL.md 363 行` · `2 个脚本（464 + 414 行）` · `4 篇 references` · `Python 3.8+` · `audit.py 零第三方依赖` · `MIT`
+它不替你写业务逻辑，只管两件最容易出错的事：**让 skill 真的会被触发**，**让插件真的能被 Agent 接受**。
+
+`SKILL.md 109 行（计入上下文 103 行）` · `6 篇 references` · `3 个脚本` · `Python 3.8+ / Node 18+` · `audit.py 零第三方依赖` · `MIT`
 
 ---
 
@@ -15,15 +17,47 @@
 - `name` 写成大写或中文，整个 skill 被丢弃，屏幕上没有任何报错；
 - 字段名写了 DSH 不认识的（`triggers`、`version`、`author`），一律忽略，文件看上去一切正常；
 - 触发场景写进了 `whenToUse`，而这个字段根本不进会话目录，对触发毫无作用；
-- `description` 超过 500 字符，尾部被截断，模型永远读不到你精心写的那几条；
+- `description` 超过上限，尾部被截断，模型永远读不到你精心写的那几条；
 - `SKILL.md` 放在嵌套目录里，而扫描深度刻意只有一层，找不到；
 - 正文写了 500 行领域知识，每次触发都把这 500 行重新塞进上下文。
 
-这些都不会崩、不报错、不提示。所以「写个 Markdown」并不够，你需要的是一套能**静态体检**加**实测触发率**的工具。本 skill 就是这套工具，外加一份把机制讲清楚的规格速查。
+插件包则是另一种麻烦：它不静默，但报错点分散在三个文件里——
+
+- 图标只在**包根 `icon.svg`** 里找，写了 `exports["./icon"]` 也没用，缺了直接 `ENOENT`；
+- 参数 schema 里写 `type: ["number", "string"]`，Agent 会以 `unsupported JSON schema` 整条拒绝；
+- 返回值多一个 `output.schema` 没声明的键，整次工具调用以 `INVALID_TOOL_OUTPUT` 失败；
+- 配置项写了却不生效（被 preset 覆盖、或根本没人读源码里那个键），而屏幕上一切正常。
+
+所以「写个 Markdown」或者「装个包」都不够，你需要**静态体检** + **实测触发率** + 一份把机制讲清楚的规格速查。
 
 ---
 
-## 核心概念速览
+## 两支的分工
+
+两者只有"都给 Agent 加能力"这一点相同，硬约束几乎不重叠：
+
+| | skill | 插件包 |
+|---|---|---|
+| 改的是什么 | Agent 的**判断**（何时做、按什么步骤） | Agent 的**能力**（新工具、新服务、界面槽位） |
+| 载体 | `<name>/SKILL.md` | npm 包 + `cordis.patch.yml` |
+| 载入方式 | 扫描技能目录，每轮把 name + description 放进会话目录 | 启动时按 profile 补丁装成运行时插件 |
+| 影响范围 | 被调用的那一轮 | 整个 profile 的全部会话 |
+| 改完生效 | 模型侧热重载；`/` 菜单要刷新页面 | **要重启 Agent**，schema 与配置都不热更新 |
+| 校核工具 | `scripts/audit.py`（14 项判据） | `scripts/audit-plugin.mjs`（9 类判据） |
+
+**结构是刻意的**：`SKILL.md` 只放两支共同的部分（判支、同构、纪律），差别与各自的做法全在 references 里。
+
+```
+SKILL.md  →  判这一单是 skill 还是插件  →  只读那一份细则
+                ├── references/skills.md    skill 侧全部细则
+                └── references/plugins.md   插件侧全部细则
+```
+
+调插件时不必读 skill 的 6 条铁律，调 skill 时不必读图标与补丁，这是省 token 也省注意力的关键。
+
+---
+
+## 核心概念速览（skill 侧）
 
 ### 6 条硬约束
 
@@ -33,7 +67,7 @@
 | 2 | `description` 必填、非空 | 同上 |
 | 3 | 发现深度**只有一层**：`<root>/<name>/SKILL.md` | 嵌套目录里的 skill 找不到 |
 | 4 | 会话目录里**只渲染 `name` + `description`** | `whenToUse` 对触发**毫无作用** |
-| 5 | `description` 在目录中被截断到 **500 字符** | 超出部分模型看不到 |
+| 5 | `description` 超长会被截断（DSH 默认 500，本机自行收到 400） | 超出部分模型看不到 |
 | 6 | 目录是**持久消息**，正文是**工具结果** | 两者都常驻消耗 token |
 
 第 4、5 条最容易踩：`whenToUse` 合法但不参与触发，`description` 超长的部分彻底消失。**把最重要的触发场景放最前面。**
@@ -72,6 +106,16 @@ DSH **没有关键词表、没有正则、没有匹配打分**。触发是模型
 
 ---
 
+## 插件侧的三条硬事实
+
+这三条是两支**同构**的地方，改 skill 的经验可以直接平移：
+
+1. **工具描述就是插件的 `description`。** 模型只读得到工具的描述和参数名，读不出"什么时候该用"就永远不会调它；而这段描述**每轮都在上下文里计费**（Agent 自己按 `toolsTokens` 统计）。
+2. **参数 schema 的 `type` 只能是单个类型字符串。** 联合类型要写 `oneOf`，写成数组会被整条拒绝。
+3. **改完必须重启 Agent。** skill 改 frontmatter 立刻刷新模型侧目录，插件不行——不重启，模型看到的还是旧 schema。
+
+---
+
 ## 安装
 
 安装本身就是「把目录拷进去」，但有两个前提必须满足，否则装了也不生效。
@@ -93,31 +137,29 @@ DSH **没有关键词表、没有正则、没有匹配打分**。触发是模型
 
 Windows 上用户级 agents 目录即 `C:\Users\<用户名>\.agents\skills`。
 
-安装（Windows PowerShell）：
-
 ```powershell
-# 用户级安装：对所有项目生效
-Copy-Item -Recurse .\skill-create-debug-dsh "$env:USERPROFILE\.agents\skills\"
+# Windows PowerShell：用户级安装，对所有项目生效
+Copy-Item -Recurse .\dsh-skill-plugin-tuning "$env:USERPROFILE\.agents\skills\"
 ```
 
 ```bash
-# Linux / macOS 用户级安装
-cp -r ./skill-create-debug-dsh ~/.agents/skills/
+# Linux / macOS
+cp -r ./dsh-skill-plugin-tuning ~/.agents/skills/
 ```
 
 项目级安装则把同一份目录放到 `<项目根>/.agents/skills/` 或 `<项目根>/.dsh/skills/` 下。
 
-**无需重启。** 改 frontmatter 后模型侧目录会热重载，下一个模型步骤即可见。但 Web UI 的 `/` 菜单不会自动刷新，**需要按 F5**。另外，`references/`、`scripts/`、`assets/` 里的编辑不触发目录刷新，改这些文件不需要做任何操作。
+**无需重启。** 改 frontmatter 后模型侧目录会热重载，下一个模型步骤即可见。但 Web UI 的 `/` 菜单不会自动刷新，**需要按 F5**。`references/`、`scripts/`、`assets/` 里的编辑不触发目录刷新，改这些文件不需要任何操作。
 
-验证是否装上：在 DSH 会话里输入 `/sk`，`skill-create-debug-dsh` 应该出现在候选里（`/` 菜单是不区分大小写的有序子序列匹配，前缀命中排最前）。如果模型侧目录里有它、菜单里没有，先刷新页面，不要急着改 frontmatter。
+验证是否装上：在 DSH 会话里输入 `/dsh`，`dsh-skill-plugin-tuning` 应该出现在候选前列（`/` 菜单是不区分大小写的有序子序列匹配，前缀命中排最前）。如果模型侧目录里有它、菜单里没有，先刷新页面，不要急着改 frontmatter。
 
 ---
 
 ## 脚本用法
 
-两个脚本都在 `scripts/` 下。
+三个脚本都在 `scripts/` 下。前两个是 Python，第三个是 Node（插件是 JS，要 import 插件自己的代码才验得准）。
 
-### audit.py：静态体检
+### audit.py：skill 静态体检
 
 ```bash
 python scripts/audit.py                    # 体检全部 skill
@@ -125,25 +167,42 @@ python scripts/audit.py --skill <name>     # 体检单个 skill
 python scripts/audit.py --json             # 机器可读输出
 ```
 
-检查项：frontmatter 合规性、命名合法性、行数、正文与 `description` 的 token 成本估算、`description` 质量（长度 / 触发场景 / 边界）、未知字段（死字段）、结构合理性（该不该拆 `references/`）、跨 skill 触发词重叠。
+14 项判据，编码即报告前缀：`E1`–`E4`（读不到 / frontmatter / name / description）、`W1`–`W7`（description 长度与触发词、`whenToUse`、正文行数、跨 skill 触发词重叠、死字段、排斥性声明）、`I0`–`I2`（name 与目录名、references 结构、调用开关提示）。
 
 真实输出（本仓库自身，实测）：
 
 ```
-$ python scripts/audit.py --skill skill-create-debug-dsh
+$ python scripts/audit.py --skill dsh-skill-plugin-tuning
 
-skill-create-debug-dsh    OK
-    正文 357 行 | description 319 字符 | 目录常驻约 182 tok | 正文约 5592 tok | 子目录: scripts,references
-
-汇总: 1 个 skill | 0 错误 | 0 警告
-每次会话的 skill 目录常驻成本约 182 tokens（仅 description）
+dsh-skill-plugin-tuning    OK
+    正文 103 行 | description 216 字符 | 目录常驻约 148 tok | 正文约 2255 tok | 子目录: scripts,references
 ```
 
-注意 `正文 357 行` 这个数字与文件总行数（363 行）略有差别：前者统计的是计入上下文成本的正文部分。
+注意 `正文 103 行` 与文件总行数（109 行）略有差别：前者统计的是计入上下文成本的正文部分。
 
-拿到报告后按「错误 → 警告 → 建议」的顺序处理。**错误必须先清零**，警告可以判断后再决定。
+拿到报告后按「错误 → 警告 → 信息」的顺序处理。**错误必须先清零**，警告可以判断后再决定。
 
-### eval_trigger.py：触发准确率评估
+### audit-plugin.mjs：插件包体检
+
+```bash
+node scripts/audit-plugin.mjs --path <插件包目录>
+node scripts/audit-plugin.mjs --path <插件包目录> --json
+```
+
+9 类判据：`package.json` 与 `files` 白名单、图标（只认包根 `icon.svg`）、`dsh.bundle.patch` 与补丁 id、**工具契约形态**（`type` 不能是数组、`additionalProperties: false`、`required` 不含未声明项、必须有 `output.schema`）、**配置死键**、文件规模与 TODO、文档引用路径、没人用的导出。
+
+`P4` 的深度检查需要插件导出 `buildTools(deps)` 与 `resolveConfig()`；不导出就只做文件级检查，脚本会明说"跳过"，不会假装通过。
+
+**脚本自己也要验一次。** 带一个故意做坏的夹具，跑它应该报 4 个错误 + 5 个警告：
+
+```bash
+node scripts/audit-plugin.mjs --path scripts/fixtures/broken-plugin   # 期望 exit 1
+node scripts/audit-plugin.mjs --path <真插件目录>                      # 期望 exit 0
+```
+
+一片绿说明检测坏了，不是包变好了。
+
+### eval_trigger.py：skill 触发准确率评估
 
 ```bash
 python scripts/eval_trigger.py --check                            # 环境就绪性检查
@@ -171,6 +230,8 @@ $ python scripts/eval_trigger.py --skill <name> --cases cases.json --repeat 3 --
 
 **命中率低是欠触发**，去 `description` 里补触发场景。**误触发率高是边界不清**，加「不适用」段。每次只改一个变量再重跑，否则无法归因。
 
+**这个脚本目前只覆盖 skill。** 插件的工具触发评估方法完全同构（读同一份 session 日志、看 `tool/call` 里有没有那个工具名），但还没实现成脚本，只能人工做。
+
 ---
 
 ## 触发准确率是怎么测的
@@ -192,6 +253,8 @@ dsh --profile headless "<查询>"  →  读 session 日志  →  查是否调用
 - 模型采样有随机性，`--repeat` 少了得到的只是噪声，建议至少 3 次；
 - 判定依赖 DSH 的 session 日志格式与 `tool/call` 事件结构。DSH 若改了日志格式，解析可能失效，此时脚本会报「未产生新的 session」或解析不到事件，而不是悄悄给出错误的 0%；
 - 用例集的质量决定结论的价值。用显而易见无关的请求凑数，会得到一份好看但无用的 100%。
+
+**插件侧的能力边界**：能做到静态与契约层面的验证；工具会不会被模型选中（触发率）没有脚本；UI 插件、MCP 配置型 bundle 完全未覆盖；多 bundle 冲突未验证。
 
 ---
 
@@ -227,21 +290,25 @@ python scripts/eval_trigger.py --skill <name> --cases cases.json
 ## 仓库结构
 
 ```
-skill-create-debug-dsh/
-├── SKILL.md                        363 行，主指令
+dsh-skill-plugin-tuning/
+├── SKILL.md                        109 行（计入上下文 103 行），框架：判支、同构、纪律
 ├── scripts/
-│   ├── audit.py                    464 行，静态体检，仅用标准库
-│   └── eval_trigger.py             414 行，触发率评估，依赖 zstandard
+│   ├── audit.py                    466 行，skill 静态体检，仅用标准库
+│   ├── eval_trigger.py             414 行，触发率评估，依赖 zstandard
+│   ├── audit-plugin.mjs            424 行，插件包体检，无第三方依赖
+│   └── fixtures/broken-plugin/     故意做坏的插件包，用来验证体检脚本真的会报错
 ├── references/
+│   ├── skills.md                   407 行，skill 侧全部细则
+│   ├── plugins.md                  211 行，插件侧全部细则
 │   ├── dsh-spec.md                 198 行，frontmatter 字段语义、发现规则、rank 优先级
 │   ├── dsh-behavior.md             183 行，运行期行为、目录与正文生命周期、token 成本模型
-│   ├── authoring.md                233 行，写法方法、description 打磨、渐进式披露
+│   ├── authoring.md                235 行，写法方法、description 打磨、渐进式披露
 │   └── eval-methodology.md         187 行，用例设计、结果解读、A/B 对比
 ├── LICENSE                         MIT
 └── .gitignore
 ```
 
-合计 2042 行，约 90 KB。`references/` 是按需加载的长文档，正文只在需要精确细节时指向它们，这样触发成本才可控。
+合计约 2900 行。`references/` 是按需加载的长文档，正文只在需要精确细节时指向它们，这样触发成本才可控。
 
 ---
 
@@ -249,10 +316,11 @@ skill-create-debug-dsh/
 
 | 项目 | 要求 |
 |---|---|
-| Python | 3.8+（开发环境为 3.13） |
-| 第三方包 | `audit.py` 无；`eval_trigger.py` 需要 `zstandard`，用于读取 DSH 的 zstd 压缩 session 日志 |
+| Python | 3.8+（开发环境为 3.13），供 `audit.py` 与 `eval_trigger.py` |
+| Node | 18+（开发环境为 24），供 `audit-plugin.mjs`；要 import 插件自己的代码 |
+| 第三方包 | `audit.py`、`audit-plugin.mjs` 无；`eval_trigger.py` 需要 `zstandard` |
 | DSH CLI | 仅 `eval_trigger.py` 需要，且 `dsh` 必须在 PATH 中 |
-| 平台 | 在 Windows 上开发，含 Windows 专属处理；代码有跨平台分支 |
+| 平台 | 在 Windows 上开发，含 Windows 专属处理；Node 脚本跨平台 |
 
 `zstandard` 是评估脚本的**硬依赖**，缺少时 session 日志解不开：
 
@@ -262,7 +330,13 @@ pip install zstandard
 
 Windows 专属处理包括：任务栏弹窗抑制（防止掐断进程树时弹出「应用程序无法正常启动」对话框）、用 `taskkill /T` 结束整棵无头进程树、解析 npm 的 `.CMD` shim 以定位 `dsh`。其余路径有跨平台分支（用 `os.killpg` 结束进程组），但**非 Windows 平台的实测覆盖较少**，在 Linux 或 macOS 上遇到问题请提 issue。
 
-关于 DSH 版本：本 skill 记录的约束（500 字符截断、rank 表、日志事件结构）均以写作时的 DSH 行为为准。DSH 若调整这些默认值，`references/` 里的规格与 `audit.py` 的检查项可能随之漂移。
+关于 DSH 版本：本 skill 记录的约束（描述截断、rank 表、日志事件结构、schema 限制、图标约定）均以写作时的 DSH 行为为准。DSH 若调整这些默认值，`references/` 里的规格与两个体检脚本的检查项可能随之漂移。
+
+### 来源
+
+skill 侧的主体骨架（四目录结构、渐进式披露、`description` 写作要点、触发评估的用例设计）借鉴 Anthropic 的 [`skill-creator`](https://github.com/anthropics/skills)；插件侧的四条做法（知识来源顺序、什么不算验证、最小可用版优先、不枚举目录）借鉴 DSH 随包的 `cordis-plugin-development`。
+
+判据本身不是借的：skill 的 14 项与插件的 9 类，都是在本机真实返工里踩出来的（`INVALID_TOOL_OUTPUT`、`type` 数组被拒、`icon.svg` ENOENT、配置被 preset 覆盖、缓存键漏字段、描述渲染出 `undefined`）。具体到每一条的出处，写在 `references/skills.md` 第十一节与 `references/plugins.md` 第七节。
 
 ---
 
